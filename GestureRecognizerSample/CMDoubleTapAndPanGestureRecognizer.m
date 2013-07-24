@@ -11,66 +11,86 @@
 
 static CGFloat const ScalePerPixel = 0.01f;
 
-@interface CMDoubleTapAndPanGestureRecognizer () {
-    __weak UITouch *trackingTouch;
-}
+@interface CMDoubleTapAndPanGestureRecognizer ()
 
 @end
 
-@implementation CMDoubleTapAndPanGestureRecognizer
+@implementation CMDoubleTapAndPanGestureRecognizer {
+    NSTimer *_timeOutTimer;
+}
 
-- (void)reset
-{
-    trackingTouch = nil;
+- (void)reset {
     _scale = 1.0f;
 }
 
-- (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event
-{
-    UITouch *touch = [touches anyObject];
-    // ２つ以上のタッチがある場合とダブルタップ以外は処理しない
-    if (event.allTouches.count != 1 || touch.tapCount != 2) {
-        if (trackingTouch) {
-            self.state = UIGestureRecognizerStateEnded;
+- (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
+    [self invalidateTimer];
+    if ([touches count] > 1) {
+        self.state = UIGestureRecognizerStateFailed;
+    } else {
+        UITouch *touch = [touches anyObject];
+        if (touch.tapCount == 1) {
+            _timeOutTimer = [NSTimer scheduledTimerWithTimeInterval:1.0f target:self selector:@selector(handleTimeOut) userInfo:nil repeats:NO];
+        } else if (touch.tapCount == 2) {
+            return;
+        } else {
+            self.state = UIGestureRecognizerStateFailed;
         }
-        return;
     }
-    
-    trackingTouch = touch;
-    self.state = UIGestureRecognizerStateBegan;
 }
 
-- (void)touchesMoved:(NSSet *)touches withEvent:(UIEvent *)event
-{
-    // ジェスチャが開始されていない場合とジェスチャの開始を成立させたタッチが含まれない場合は処理をしない
-    if (!trackingTouch || ![touches containsObject:trackingTouch]) {
-        return;
+- (void)touchesMoved:(NSSet *)touches withEvent:(UIEvent *)event {
+    [self invalidateTimer];
+    UITouch *touch = [touches anyObject];
+    if (touch.tapCount == 2) {
+        CGPoint point = [touch locationInView:nil];
+        CGPoint previousPoint = [touch previousLocationInView:nil];
+        CGFloat delta = previousPoint.y - point.y;
+        _scale = 1.0f + delta * ScalePerPixel;
+        
+        if (self.state == UIGestureRecognizerStatePossible) {
+            self.state = UIGestureRecognizerStateBegan;
+        } else {
+            self.state = UIGestureRecognizerStateChanged;
+        }
     }
-    
-    CGPoint point = [trackingTouch locationInView:nil];
-    CGPoint previousPoint = [trackingTouch previousLocationInView:nil];
-    CGFloat delta = previousPoint.y - point.y;
-    _scale = 1.0f + delta * ScalePerPixel;
+    else {
+        self.state = UIGestureRecognizerStateFailed;
+    }
 }
 
-- (void)touchesEnded:(NSSet *)touches withEvent:(UIEvent *)event
-{
-    // ジェスチャが開始されていない場合とジェスチャの開始を成立させたタッチが含まれない場合は処理をしない
-    if (!trackingTouch || ![touches containsObject:trackingTouch]) {
-        return;
+- (void)touchesEnded:(NSSet *)touches withEvent:(UIEvent *)event {
+    [self invalidateTimer];
+    UITouch *touch = [touches anyObject];
+    if (self.state == UIGestureRecognizerStatePossible &&
+        touch.tapCount < 2) {
+        _timeOutTimer = [NSTimer scheduledTimerWithTimeInterval:0.5f target:self selector:@selector(handleTimeOut) userInfo:nil repeats:NO];
     }
-    
-    self.state = UIGestureRecognizerStateEnded;
+    else {
+        if (self.state == UIGestureRecognizerStateBegan ||
+            self.state == UIGestureRecognizerStateChanged) {
+            self.state = UIGestureRecognizerStateEnded;
+        } else {
+            self.state = UIGestureRecognizerStateFailed;
+        }
+    }
 }
 
-- (void)touchesCancelled:(NSSet *)touches withEvent:(UIEvent *)event
-{
-    // ジェスチャが開始されていない場合とジェスチャの開始を成立させたタッチが含まれない場合は処理をしない
-    if (!trackingTouch || ![touches containsObject:trackingTouch]) {
-        return;
-    }
-    
+- (void)touchesCancelled:(NSSet *)touches withEvent:(UIEvent *)event {
+    [self invalidateTimer];
     self.state = UIGestureRecognizerStateCancelled;
+}
+
+- (void)invalidateTimer {
+    if (_timeOutTimer) {
+        [_timeOutTimer invalidate];
+        _timeOutTimer = nil;
+    }
+}
+
+- (void)handleTimeOut {
+    [self invalidateTimer];
+    self.state = UIGestureRecognizerStateFailed;
 }
 
 @end
